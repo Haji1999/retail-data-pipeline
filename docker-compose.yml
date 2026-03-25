@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:15
+    container_name: retail_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: retail_pipeline
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  pipeline:
+    build: .
+    container_name: retail_pipeline_app
+    depends_on:
+      - db
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./scripts:/app/scripts
+    command: ["python", "scripts/run_pipeline.py"]
+
+  airflow-init:
+    build: ./airflow
+    container_name: airflow_init
+    depends_on:
+      - db
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@db:5432/retail_pipeline
+      AIRFLOW__WEBSERVER__SECRET_KEY: my_super_secret_key
+    command: airflow db init
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./.env:/app/.env
+
+  airflow-webserver:
+    build: ./airflow
+    container_name: airflow_webserver
+    depends_on:
+      - airflow-init
+    restart: always
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@db:5432/retail_pipeline
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__SECRET_KEY: my_super_secret_key
+    ports:
+      - "8080:8080"
+    command: airflow webserver
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./scripts:/app/scripts
+      - ./data:/app/data
+      - ./.env:/app/.env
+
+  airflow-scheduler:
+    build: ./airflow
+    container_name: airflow_scheduler
+    depends_on:
+      - airflow-init
+    restart: always
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@db:5432/retail_pipeline
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__SECRET_KEY: my_super_secret_key
+    command: airflow scheduler
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./scripts:/app/scripts
+      - ./data:/app/data
+      - ./.env:/app/.env
+
+volumes:
+  postgres_data:
